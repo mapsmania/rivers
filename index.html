@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>USGS Stream Vocabulary Map</title>
+  <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <script src="https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.js"></script>
+  <link href="https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.css" rel="stylesheet" />
+  <style>
+    body { margin: 0; padding: 0; background: #111; color: white; font-family: 'Raleway', sans-serif; }
+    #map { position: absolute; top: 0; bottom: 0; width: 100%; }
+    
+    #menu {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(20, 20, 20, 0.9);
+      padding: 15px;
+      z-index: 1;
+      max-height: 90vh;
+      width: 220px;
+      overflow-y: auto;
+      border: 1px solid #444;
+      border-radius: 4px;
+    }
+    
+    h3 { margin: 0 0 10px 0; font-size: 16px; color: #eee; border-bottom: 1px solid #444; padding-bottom: 5px; }
+    .category-title { font-weight: bold; margin-top: 15px; margin-bottom: 8px; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; }
+    .ephemeral-title { color: #fe9090; }
+    .persistent-title { color: #4ed2e9; }
+    
+    #menu label { margin-left: 8px; cursor: pointer; color: #bbb; vertical-align: middle; }
+    #menu div { margin-bottom: 6px; display: flex; align-items: center; }
+    #menu input { cursor: pointer; }
+
+    #info-panel {
+  position: absolute;
+  top: 20px;
+  right: 10px;
+  width: 260px;
+  background: rgba(20,20,20,0.9);
+  padding: 15px;
+  border: 1px solid #444;
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+#info-panel h2 {
+  margin-top: 0;
+  font-size: 16px;
+}  
+
+#context-panel {
+  position: absolute;
+  bottom: 45px;
+  right: 10px;
+  width: 220px;
+  background: rgba(20,20,20,0.9);
+  padding: 15px;
+  border: 1px solid #444;
+  border-radius: 4px;
+  font-size: 13px;
+}      
+  </style>
+</head>
+<body>
+
+<div id="map"></div>
+<div id="menu">
+  <h3>Stream Vocabulary</h3>
+</div>
+<div id="info-panel">
+  <div id="info-content">
+    <h2>What’s in a Name?</h2>
+    <p>
+      This map visualizes U.S. stream names from the GNIS dataset. 
+      Each glowing point represents a named water feature.
+    </p>
+
+    <p>
+      <span style="color:#fe9090;">Ephemeral</span> names (arroyo, wash, gulch)
+      suggest water that flows occasionally in dry landscapes.
+    </p>
+
+    <p>
+      <span style="color:#4ed2e9;">Persistent</span> names (bayou, swamp, marsh)
+      imply slower, longer-lasting water.
+    </p>
+
+    <p style="font-size:11px; opacity:0.7;">
+      These are linguistic clues — not direct hydrological measurements.
+    </p>
+  </div>
+</div>
+<div id="context-panel">
+  
+  
+  <div>
+    <input type="checkbox" id="neutral-toggle" />
+    <label for="neutral-toggle">Show all stream types</label>
+  </div>
+
+  <p style="font-size:11px; opacity:0.7; margin-top:10px;">
+    Includes common names like creek, river, and run.
+    These are widespread and don’t strongly indicate water persistence.
+  </p>
+</div>    
+<script>
+const map = new maplibregl.Map({
+  container: 'map',
+  // Using a dark style to make the "firefly" glow visible
+  style: 'https://tiles.openfreemap.org/styles/dark', 
+  center: [-98, 39],
+  zoom: 3
+});
+
+// Grouped based on the USGS blog's linguistic categorization
+const types = [
+  // EPHEMERAL (Water just visiting)
+  { id: 7, name: 'arroyo', color: '#fe9090', cat: 'ephemeral' },
+  { id: 17, name: 'wash', color: '#fe9090', cat: 'ephemeral' },
+  { id: 15, name: 'draw', color: '#fe9090', cat: 'ephemeral' },
+  { id: 16, name: 'gulch', color: '#fe9090', cat: 'ephemeral' },
+  
+  // PERSISTENT (Water kinda lingers)
+  { id: 10, name: 'bayou', color: '#4ed2e9', cat: 'persistent' },
+  { id: 8, name: 'slough', color: '#4ed2e9', cat: 'persistent' },
+  { id: 11, name: 'swamp', color: '#4ed2e9', cat: 'persistent' },
+  { id: 12, name: 'lick', color: '#4ed2e9', cat: 'persistent' },
+  { id: 13, name: 'hollow', color: '#4ed2e9', cat: 'persistent' },
+  { id: 14, name: 'marsh', color: '#4ed2e9', cat: 'persistent' }
+];
+
+const neutralTypes = [
+  { id: 1, name: 'river' },
+  { id: 2, name: 'creek' },
+  { id: 3, name: 'drain' },
+  { id: 4, name: 'brook' },
+  { id: 5, name: 'run' },
+  { id: 6, name: 'spring' },
+  { id: 9, name: 'fork' }
+];    
+
+map.on('load', () => {
+  map.addSource('rivers', {
+    type: 'geojson',
+    data: 'https://mapsmania.github.io/rivers/waterways.json'
+  });
+
+  // Add the Firefly layers for each type
+  types.forEach(t => {
+    const filter = ['==', ['get', 'f'], t.id];
+
+    // THE GLOW LAYER
+    map.addLayer({
+      id: `rivers-${t.id}-glow`,
+      type: 'circle',
+      source: 'rivers',
+      filter: filter,
+      paint: {
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 4, 8, 12, 16],
+        'circle-color': t.color,
+        'circle-blur': 2.5,
+        'circle-opacity': 0.5
+      }
+    });
+
+    // THE CORE LAYER
+    map.addLayer({
+      id: `rivers-${t.id}-core`,
+      type: 'circle',
+      source: 'rivers',
+      filter: filter,
+      paint: {
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 4, 1.5, 12, 3],
+        'circle-color': '#ffffff',
+        'circle-opacity': 0.9
+      }
+    });
+  });
+
+
+  neutralTypes.forEach(t => {
+  const filter = ['==', ['get', 'f'], t.id];
+
+  map.addLayer({
+    id: `neutral-${t.id}`,
+    type: 'circle',
+    source: 'rivers',
+    filter: filter,
+    layout: {
+      visibility: 'none' // start OFF
+    },
+    paint: {
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 4, 1, 12, 2],
+      'circle-color': '#aaaaaa',
+      'circle-opacity': 0.15
+    }
+  });
+});  
+
+  // BUILD THE GROUPED UI
+  const menu = document.getElementById('menu');
+  const categories = {
+    ephemeral: { title: 'Ephemeral (Flashy)', class: 'ephemeral-title' },
+    persistent: { title: 'Persistent (Slow)', class: 'persistent-title' }
+  };
+
+  Object.keys(categories).forEach(catKey => {
+    // Add Category Header
+    // Category container
+const headerContainer = document.createElement('div');
+headerContainer.style.display = 'flex';
+headerContainer.style.alignItems = 'center';
+headerContainer.style.justifyContent = 'space-between';
+
+// Title
+const header = document.createElement('div');
+header.className = `category-title ${categories[catKey].class}`;
+header.textContent = categories[catKey].title;
+
+// Master toggle
+const masterToggle = document.createElement('input');
+masterToggle.type = 'checkbox';
+masterToggle.checked = true;
+
+// When master toggled → affect all layers in category
+masterToggle.onchange = () => {
+  const visible = masterToggle.checked ? 'visible' : 'none';
+
+  types
+    .filter(t => t.cat === catKey)
+    .forEach(t => {
+      map.setLayoutProperty(`rivers-${t.id}-glow`, 'visibility', visible);
+      map.setLayoutProperty(`rivers-${t.id}-core`, 'visibility', visible);
+    });
+
+  // Also sync individual checkboxes
+  const checkboxes = menu.querySelectorAll(`input[data-cat="${catKey}"]`);
+  checkboxes.forEach(cb => cb.checked = masterToggle.checked);
+};
+
+headerContainer.appendChild(header);
+headerContainer.appendChild(masterToggle);
+menu.appendChild(headerContainer);
+
+    // Add Checkboxes for this category
+    types.filter(t => t.cat === catKey).forEach(t => {
+      const container = document.createElement('div');
+      const checkbox = document.createElement('input');
+      checkbox.dataset.cat = catKey;
+      checkbox.type = 'checkbox';
+      checkbox.checked = true;
+
+      checkbox.onchange = () => {
+        const vis = checkbox.checked ? 'visible' : 'none';
+        map.setLayoutProperty(`rivers-${t.id}-glow`, 'visibility', vis);
+        map.setLayoutProperty(`rivers-${t.id}-core`, 'visibility', vis);
+
+        // Update master toggle state
+        const all = menu.querySelectorAll(`input[data-cat="${catKey}"]`);
+        const allChecked = [...all].every(cb => cb.checked);
+
+        const master = headerContainer.querySelector('input[type="checkbox"]');
+        master.checked = allChecked;  
+      };
+
+      const label = document.createElement('label');
+      label.textContent = t.name;
+
+      container.appendChild(checkbox);
+      container.appendChild(label);
+      menu.appendChild(container);
+    });
+  });
+});
+
+document.getElementById('neutral-toggle').onchange = (e) => {
+  const visible = e.target.checked ? 'visible' : 'none';
+
+  neutralTypes.forEach(t => {
+    map.setLayoutProperty(`neutral-${t.id}`, 'visibility', visible);
+  });
+
+  // 🔁 Swap info panel content
+  const info = document.getElementById('info-content');
+
+  if (e.target.checked) {
+    info.innerHTML = neutralInfo;
+  } else {
+    info.innerHTML = defaultInfo;
+  }
+};
+    
+function addAnnotation(text, lng, lat, color) {
+  const el = document.createElement('div');
+  el.style.color = color;
+  el.style.fontSize = '24px';
+  el.style.fontWeight = 'bold';
+  el.style.textShadow = '0 0 6px rgba(0,0,0,0.8)';
+  el.innerHTML = text;
+
+  new maplibregl.Marker({ element: el })
+    .setLngLat([lng, lat])
+    .addTo(map);
+}
+
+// Southwest (ephemeral)
+addAnnotation(
+  "Water just visiting<br/>\
+  <span style='font-weight:normal'>arroyo • wash • gulch</span><br/>\
+  <span style='font-weight:normal; font-size:14px; opacity:0.8;'>\
+  Names for dryland streams that flow only after rain\
+  </span>",
+  -128, 24,
+  '#fe9090'
+);
+
+// Southeast (persistent)
+addAnnotation(
+  "Water lingers<br/>\
+  <span style='font-weight:normal'>bayou • swamp • marsh</span><br/>\
+  <span style='font-weight:normal; font-size:14px; opacity:0.8;'>\
+  Names for slow, wet landscapes where water sticks around\
+  </span>",
+  -56, 32,
+  '#4ed2e9'
+);
+
+const defaultInfo = `
+  <h2>What’s in a Name?</h2>
+  <p>
+    This map visualizes U.S. stream names from the GNIS dataset. 
+    Each glowing point represents a named water feature.
+  </p>
+
+  <p>
+    <span style="color:#fe9090;">Ephemeral</span> names (arroyo, wash, gulch)
+    suggest water that flows occasionally in dry landscapes.
+  </p>
+
+  <p>
+    <span style="color:#4ed2e9;">Persistent</span> names (bayou, swamp, marsh)
+    imply slower, longer-lasting water.
+  </p>
+
+  <p style="font-size:11px; opacity:0.7;">
+    These are linguistic clues — not direct hydrological measurements.
+  </p>
+`;
+
+const neutralInfo = `
+  <h2>All Stream Names</h2>
+  <p>
+    When common terms like river, creek, brook, run, spring, and fork are included, 
+    the map becomes more uniform. These names are widespread and less tied to 
+    specific hydrological conditions.
+  </p>
+
+  <p>
+    A subtle divide still emerges across the United States near the 
+    <strong>100th Meridian</strong>, separating the arid West from the humid East.
+  </p>
+
+  <p>
+    This boundary reflects a major hydrologic shift — from intermittent, rainfall-driven 
+    streams in the West to more persistent, water-rich systems in the East.
+  </p>
+
+  <p style="font-size:11px; opacity:0.7;">
+    Here, language becomes less distinct, but geography still shapes the pattern.
+  </p>
+`;    
+</script>
+</body>
+</html>
